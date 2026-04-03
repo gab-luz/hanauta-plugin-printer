@@ -58,7 +58,7 @@ python3 printer_popup.py
 Copy this folder to Hanauta plugins directory, for example:
 
 ```bash
-cp -r $HOME/dev/hanauta-plugin-printer $HOME/.config/i3/hanauta/plugins/printer_widget
+cp -r "$HOME/dev/hanauta-plugin-printer" "$HOME/.config/i3/hanauta/plugins/printer_widget"
 ```
 
 Then reopen Hanauta Settings and enable **Printer** service + **Show on bar**.
