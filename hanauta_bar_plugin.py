@@ -10,6 +10,7 @@ if str(PLUGIN_ROOT) not in sys.path:
     sys.path.insert(0, str(PLUGIN_ROOT))
 
 from printer_models import PrinterSnapshot
+from python_runtime import select_python_with_cups
 from printer_service import load_snapshot_cache, quick_probe_summary
 
 SERVICE_KEY = "printer_widget"
@@ -62,7 +63,7 @@ def register_hanauta_bar_plugin(bar, api: dict[str, object]) -> None:
             toggle_singleton_process(
                 PROCESS_ATTR,
                 popup_path,
-                python_bin=bar._python_bin(),
+                python_bin=select_python_with_cups(str(bar._python_bin())),
             )
         )
         button.setChecked(active)

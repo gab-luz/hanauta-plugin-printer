@@ -258,8 +258,10 @@ class PrinterPopup(QWidget):
         self.diagnosis_strip.setWordWrap(True)
         details.addWidget(self.diagnosis_strip)
 
-        current_row = QHBoxLayout()
-        current_row.setContentsMargins(0, 0, 0, 0)
+        self.current_row_card = QFrame()
+        self.current_row_card.setObjectName("controlCard")
+        current_row = QHBoxLayout(self.current_row_card)
+        current_row.setContentsMargins(10, 10, 10, 10)
         current_row.setSpacing(8)
 
         self.printer_combo = QComboBox()
@@ -273,15 +275,17 @@ class PrinterPopup(QWidget):
 
         current_row.addWidget(self.printer_combo, 1)
         current_row.addWidget(self.default_button)
-        details.addLayout(current_row)
+        details.addWidget(self.current_row_card)
 
         self.current_printer_card = QLabel("No printer selected.")
         self.current_printer_card.setObjectName("sectionCard")
         self.current_printer_card.setWordWrap(True)
         details.addWidget(self.current_printer_card)
 
-        quick_row = QHBoxLayout()
-        quick_row.setContentsMargins(0, 0, 0, 0)
+        self.quick_actions_card = QFrame()
+        self.quick_actions_card.setObjectName("controlCard")
+        quick_row = QHBoxLayout(self.quick_actions_card)
+        quick_row.setContentsMargins(10, 10, 10, 10)
         quick_row.setSpacing(6)
 
         self.pause_button = QPushButton("Pause")
@@ -304,7 +308,13 @@ class PrinterPopup(QWidget):
         quick_row.addWidget(self.resume_button)
         quick_row.addWidget(self.cancel_all_button)
         quick_row.addWidget(self.open_cups_button)
-        details.addLayout(quick_row)
+        details.addWidget(self.quick_actions_card)
+
+        self.queue_card = QFrame()
+        self.queue_card.setObjectName("controlCard")
+        queue_shell = QVBoxLayout(self.queue_card)
+        queue_shell.setContentsMargins(8, 8, 8, 8)
+        queue_shell.setSpacing(0)
 
         self.queue_scroll = QScrollArea()
         self.queue_scroll.setObjectName("bodyScroll")
@@ -316,7 +326,8 @@ class PrinterPopup(QWidget):
         self.queue_layout.setContentsMargins(0, 0, 0, 0)
         self.queue_layout.setSpacing(6)
         self.queue_scroll.setWidget(self.queue_host)
-        details.addWidget(self.queue_scroll, 1)
+        queue_shell.addWidget(self.queue_scroll)
+        details.addWidget(self.queue_card, 1)
 
         self.supplies_card = QLabel("Supplies unavailable.")
         self.supplies_card.setObjectName("sectionCard")
@@ -517,7 +528,9 @@ class PrinterPopup(QWidget):
 
             cancel_button = QPushButton("Cancel")
             cancel_button.setObjectName("miniButton")
-            cancel_button.clicked.connect(lambda _checked=False, jid=job.job_id: self._cancel_job(jid))
+            cancel_button.clicked.connect(
+                lambda _checked=False, jid=job.job_id, pname=job.printer_name: self._cancel_job(jid, pname)
+            )
 
             header.addWidget(title)
             header.addWidget(state)
@@ -601,8 +614,8 @@ class PrinterPopup(QWidget):
             self._run_action(lambda: self.service.resume_printer(printer.name))
             return
 
-    def _cancel_job(self, job_id: int) -> None:
-        self._run_action(lambda: self.service.cancel_job(job_id))
+    def _cancel_job(self, job_id: int, printer_name: str = "") -> None:
+        self._run_action(lambda: self.service.cancel_job(job_id, printer_name))
 
     def _cancel_my_jobs(self) -> None:
         printer = self._selected_printer()
@@ -672,6 +685,11 @@ class PrinterPopup(QWidget):
                 color: {text};
                 padding: 8px;
             }}
+            QFrame#controlCard {{
+                border-radius: 14px;
+                border: 1px solid {rgba(theme.outline, 0.22)};
+                background: {rgba(theme.surface_container_high, 0.42)};
+            }}
             QLabel#summaryStateIcon {{ color: {accent}; }}
             QLabel#summaryPrinterName {{ color: {text}; }}
             QLabel#summaryStateText {{ color: {subdued}; }}
@@ -720,6 +738,9 @@ class PrinterPopup(QWidget):
                 padding: 0 8px;
             }}
             QScrollArea#bodyScroll {{ background: transparent; border: none; }}
+            QScrollArea#bodyScroll > QWidget > QWidget {{
+                background: transparent;
+            }}
             QProgressBar#summaryBusy {{
                 border: 1px solid {rgba(accent, 0.45)};
                 border-radius: 6px;

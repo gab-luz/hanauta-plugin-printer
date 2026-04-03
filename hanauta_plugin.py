@@ -9,6 +9,7 @@ from pathlib import Path
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QCursor
 from PyQt6.QtWidgets import QLabel, QPushButton, QVBoxLayout, QWidget
+from python_runtime import select_python_with_cups
 
 PLUGIN_ROOT = Path(__file__).resolve().parent
 POPUP_APP = PLUGIN_ROOT / "printer_popup.py"
@@ -89,8 +90,12 @@ def _launch_popup(window, api: dict[str, object]) -> None:
             command = list(entry_command(POPUP_APP))
         except Exception:
             command = []
+    preferred_python = command[0] if command and str(command[0]).strip() else ""
+    python_bin = select_python_with_cups(str(preferred_python))
     if not command:
-        command = ["python3", str(POPUP_APP)]
+        command = [python_bin, str(POPUP_APP)]
+    elif str(command[0]).endswith("python") or "python" in str(Path(str(command[0])).name):
+        command[0] = python_bin
     if callable(run_bg):
         try:
             run_bg(command)

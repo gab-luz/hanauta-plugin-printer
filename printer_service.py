@@ -389,21 +389,54 @@ class PrinterService:
         except Exception as exc:
             return False, f"Resume failed: {exc}"
 
-    def cancel_job(self, job_id: int) -> tuple[bool, str]:
+    def cancel_job(self, job_id: int, printer_name: str = "") -> tuple[bool, str]:
+        job_int = int(job_id)
+        attempts: list[str] = []
         try:
             conn = self._connection()
-            conn.cancelJob(int(job_id))
-            return True, f"Canceled job {job_id}."
         except Exception as exc:
-            return False, f"Cancel failed: {exc}"
+            conn = None
+            attempts.append(f"cups connect: {exc}")
 
-    def set_default_printer(self, printer_name: str) -> tuple[bool, str]:
-        try:
-            conn = self._connection()
-            conn.setDefault(printer_name)
-            return True, f"{printer_name} set as default."
-        except Exception as exc:
-            return False, f"Set default failed: {exc}"
+        if conn is not None:
+            # Some CUPS backends behave differently with purge_job; try both.
+            try:
+                conn.cancelJob(job_int)
+                return True, f"Canceled job {job_int}."
+            except Exception as exc:
+                attempts.append(f"cancelJob: {exc}")
+            try:
+                conn.cancelJob(job_int, True)
+                return True, f"Canceled job {job_int}."
+            except Exception as exc:
+                attempts.append(f"cancelJob(purge): {exc}")
+
+        # Fallback to CUPS CLI, which can work in environments where pycups cancel is rejected.
+        request_ids = [str(job_int)]
+        if printer_name:
+            request_ids.append(f"{printer_name}-{job_int}")
+        for request_id in request_ids:
+            cmd = ["cancel", request_id]
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=4.0,
+                    check=False,
+                )
+                if proc.returncode == 0:
+                    return True, f"Canceled job {job_int}."
+                detail = (proc.stderr or proc.stdout or "").strip()
+                if detail:
+                    attempts.append(f"{' '.join(cmd)}: {detail}")
+                else:
+                    attempts.append(f"{' '.join(cmd)} exited with {proc.returncode}")
+            except Exception as exc:
+                attempts.append(f"{' '.join(cmd)}: {exc}")
+
+        detail = "; ".join(item for item in attempts if item) or "unknown error"
+        return False, f"Cancel failed for job {job_int}: {detail}"
 
     def cancel_my_jobs(self, user: str | None = None, printer_name: str = "") -> tuple[bool, str]:
         target_user = (user or getpass.getuser() or "").strip()
@@ -413,24 +446,39 @@ class PrinterService:
             conn = self._connection()
             jobs = conn.getJobs(which_jobs="not-completed") or {}
             canceled = 0
+            failures: list[str] = []
             for job_id, attrs in jobs.items():
                 if not isinstance(attrs, dict):
                     continue
                 owner = str(attrs.get("job-originating-user-name", "") or "").strip()
                 if owner != target_user:
                     continue
-                if printer_name:
-                    j_printer = str(attrs.get("job-printer-name", "") or "").strip()
-                    if not j_printer:
-                        uri = str(attrs.get("job-printer-uri", "") or "")
-                        j_printer = uri.rsplit("/", 1)[-1] if "/" in uri else ""
-                    if j_printer != printer_name:
-                        continue
-                conn.cancelJob(int(job_id))
-                canceled += 1
+                j_printer = str(attrs.get("job-printer-name", "") or "").strip()
+                if not j_printer:
+                    uri = str(attrs.get("job-printer-uri", "") or "")
+                    j_printer = uri.rsplit("/", 1)[-1] if "/" in uri else ""
+                if printer_name and j_printer != printer_name:
+                    continue
+                ok, message = self.cancel_job(int(job_id), j_printer)
+                if ok:
+                    canceled += 1
+                else:
+                    failures.append(message)
+            if failures and canceled == 0:
+                return False, failures[0]
+            if failures:
+                return True, f"Canceled {canceled} job(s) for {target_user}. Some jobs failed."
             return True, f"Canceled {canceled} job(s) for {target_user}."
         except Exception as exc:
             return False, f"Cancel-all failed: {exc}"
+
+    def set_default_printer(self, printer_name: str) -> tuple[bool, str]:
+        try:
+            conn = self._connection()
+            conn.setDefault(printer_name)
+            return True, f"{printer_name} set as default."
+        except Exception as exc:
+            return False, f"Set default failed: {exc}"
 
 
 def save_snapshot_cache(snapshot: PrinterSnapshot) -> None:
