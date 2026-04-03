@@ -1,0 +1,27 @@
+{
+  "requires_privileged_install": true,
+  "permissions": [
+    {
+      "key": "privileged",
+      "label": "Install system package",
+      "description": "Installs pycups dependency using distro package manager: Debian/Ubuntu = python3-cups, Arch = python-pycups."
+    },
+    {
+      "key": "network",
+      "label": "Package repository access",
+      "description": "May access package repositories while installing missing printer dependency packages."
+    }
+  ],
+  "privileged_install": {
+    "command": [
+      "bash",
+      "${PLUGIN_DIR}/bin/install_root_service.sh"
+    ]
+  },
+  "privileged_uninstall": {
+    "command": [
+      "bash",
+      "${PLUGIN_DIR}/bin/uninstall_root_service.sh"
+    ]
+  }
+}
