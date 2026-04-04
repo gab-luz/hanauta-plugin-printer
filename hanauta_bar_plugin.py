@@ -30,7 +30,7 @@ def _service_settings(load_service_settings):
 
 def _short_state(snapshot: PrinterSnapshot | None) -> tuple[str, str, int, bool]:
     if snapshot is None:
-        return "", "Unknown", 0, True
+        return "", "Unknown", 0, False
     default = snapshot.default_printer
     active_jobs = len(snapshot.active_jobs)
     if not default and snapshot.printers:
@@ -44,6 +44,25 @@ def _short_state(snapshot: PrinterSnapshot | None) -> tuple[str, str, int, bool]
             attention = printer.needs_attention
             break
     return default, state, active_jobs, attention
+
+
+def _should_show_in_adaptive_mode(state: str, queue_count: int, attention: bool) -> bool:
+    normalized = str(state or "").strip().lower()
+    if int(queue_count) > 0:
+        return True
+    if normalized in {
+        "printing",
+        "paused",
+        "stopped",
+        "error",
+        "offline",
+        "needs attention",
+        "cups unavailable",
+    }:
+        return True
+    if attention and normalized not in {"", "unknown", "idle", "ready"}:
+        return True
+    return False
 
 
 def register_hanauta_bar_plugin(bar, api: dict[str, object]) -> None:
@@ -77,11 +96,16 @@ def register_hanauta_bar_plugin(bar, api: dict[str, object]) -> None:
         font_size=16,
     )
 
-    def _sync_visibility() -> None:
+    def _sync_visibility(state: str = "", queue_count: int = 0, attention: bool = False) -> None:
         current = _service_settings(load_service_settings)
         enabled = bool(current.get("enabled", False))
         show_in_bar = bool(current.get("show_in_bar", False))
-        button.setVisible(enabled and show_in_bar)
+        mode = str(current.get("bar_visibility_mode", "adaptive")).strip().lower()
+        if mode == "always":
+            mode_visible = True
+        else:
+            mode_visible = _should_show_in_adaptive_mode(state, queue_count, attention)
+        button.setVisible(enabled and show_in_bar and mode_visible)
 
     def _refresh_cached_snapshot(force: bool = False) -> PrinterSnapshot | None:
         now = time.time()
@@ -121,6 +145,7 @@ def register_hanauta_bar_plugin(bar, api: dict[str, object]) -> None:
             popup_path,
             tooltip=tooltip,
         )
+        _sync_visibility(state, int(queue_count), bool(attention))
 
     def on_close() -> None:
         process = getattr(bar, PROCESS_ATTR, None)
@@ -131,5 +156,5 @@ def register_hanauta_bar_plugin(bar, api: dict[str, object]) -> None:
     register_hook("poll", _sync_compact_state)
     register_hook("close", on_close)
 
-    _sync_visibility()
     _sync_compact_state()
+

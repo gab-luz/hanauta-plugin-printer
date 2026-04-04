@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QTimer, QSize
-from PyQt6.QtGui import QColor, QCursor, QFont, QFontDatabase
+from PyQt6.QtGui import QColor, QCursor, QFont, QFontDatabase, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -37,6 +37,19 @@ FONTS_DIR = ROOT / "assets" / "fonts"
 SETTINGS_FILE = (
     Path.home() / ".local" / "state" / "hanauta" / "notification-center" / "settings.json"
 )
+BRANDS_DIR = PLUGIN_ROOT / "assets" / "brands"
+
+BRAND_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "hp": (" hp", "hewlett", "laserjet", "deskjet", "officejet"),
+    "lexmark": ("lexmark",),
+    "epson": ("epson",),
+    "canon": ("canon", "pixma", "imageclass"),
+    "brother": ("brother", "hl-", "mfc-", "dcp-"),
+    "xerox": ("xerox",),
+    "ricoh": ("ricoh",),
+    "kyocera": ("kyocera",),
+    "samsung": ("samsung",),
+}
 
 if str(APP_DIR) not in sys.path:
     sys.path.insert(0, str(APP_DIR))
@@ -97,6 +110,30 @@ def detect_font(*families: str) -> str:
     return "Sans Serif"
 
 
+
+
+def _brand_key_for_printer(printer: PrinterInfo | None) -> str | None:
+    if printer is None:
+        return None
+    haystack = f" {printer.name} {printer.model} ".lower()
+    for key, terms in BRAND_KEYWORDS.items():
+        for term in terms:
+            if term and term in haystack:
+                return key
+    return None
+
+
+def _brand_logo_path(brand_key: str | None) -> Path | None:
+    if not brand_key:
+        return None
+    svg_candidate = BRANDS_DIR / f"{brand_key}.svg"
+    if svg_candidate.exists():
+        return svg_candidate
+    png_candidate = BRANDS_DIR / f"{brand_key}.png"
+    if png_candidate.exists():
+        return png_candidate
+    return None
+
 def load_widget_settings() -> dict[str, object]:
     try:
         payload = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
@@ -105,7 +142,14 @@ def load_widget_settings() -> dict[str, object]:
     if not isinstance(payload, dict):
         payload = {}
     widget = payload.get("printer_widget", {})
-    return widget if isinstance(widget, dict) else {}
+    current = widget if isinstance(widget, dict) else {}
+    if "silent_success_notifications" in current and "notify_job_completed" not in current:
+        current["notify_job_completed"] = not bool(current.get("silent_success_notifications", False))
+    current.setdefault("notify_job_completed", True)
+    current.setdefault("notify_job_failed", True)
+    current.setdefault("notify_supply_alerts", True)
+    current.setdefault("notify_printer_recovered", True)
+    return current
 
 
 class PrinterPopup(QWidget):
@@ -209,6 +253,13 @@ class PrinterPopup(QWidget):
         self.summary_state_icon.setFont(QFont(self.icon_font, 20))
         self.summary_state_icon.setFixedWidth(22)
 
+        self.brand_badge = QLabel(material_icon("print"))
+        self.brand_badge.setObjectName("brandBadge")
+        self.brand_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.brand_badge.setFont(QFont(self.icon_font, 18))
+        self.brand_badge.setMinimumSize(28, 28)
+        self.brand_badge.setMaximumHeight(34)
+
         text_col = QVBoxLayout()
         text_col.setContentsMargins(0, 0, 0, 0)
         text_col.setSpacing(2)
@@ -236,6 +287,7 @@ class PrinterPopup(QWidget):
 
         top.addWidget(self.summary_state_icon)
         top.addLayout(text_col, 1)
+        top.addWidget(self.brand_badge)
         top.addWidget(self.summary_warning_badge)
         top.addWidget(self.summary_queue_badge)
         summary_layout.addLayout(top)
@@ -408,7 +460,7 @@ class PrinterPopup(QWidget):
         emit_delta_notifications(
             self._last_snapshot,
             payload,
-            silent_success=bool(widget_settings.get("silent_success_notifications", False)),
+            settings=widget_settings,
         )
         self._last_snapshot = payload
 
@@ -443,6 +495,32 @@ class PrinterPopup(QWidget):
         self.summary_state_text.setText(state_text)
         self.summary_warning_badge.setVisible(bool(attention))
         self.summary_queue_badge.setText(str(max(0, int(queue_count))))
+
+        summary_printer = next((item for item in snapshot.printers if item.is_default), None)
+        if summary_printer is None and snapshot.printers:
+            summary_printer = snapshot.printers[0]
+        brand_path = _brand_logo_path(_brand_key_for_printer(summary_printer))
+        target_height = max(22, min(30, int(self.summary_card.height() * 0.34)))
+        target_width = max(36, min(88, int(self.summary_card.width() * 0.22)))
+        self.brand_badge.setFixedSize(target_width, target_height)
+        if brand_path is not None:
+            pixmap = QPixmap(str(brand_path))
+            if not pixmap.isNull():
+                self.brand_badge.setPixmap(
+                    pixmap.scaled(
+                        target_width,
+                        target_height,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
+                )
+                self.brand_badge.setText("")
+            else:
+                self.brand_badge.setPixmap(QPixmap())
+                self.brand_badge.setText(material_icon("print"))
+        else:
+            self.brand_badge.setPixmap(QPixmap())
+            self.brand_badge.setText(material_icon("print"))
 
         printing = any(item.state == PrinterState.PRINTING for item in snapshot.printers)
         if printing:
